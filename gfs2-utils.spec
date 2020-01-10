@@ -12,7 +12,7 @@
 
 Name: gfs2-utils
 Version: 3.1.9
-Release: 3%{?dist}
+Release: 3%{?dist}.1
 License: GPLv2+ and LGPLv2+
 Group: System Environment/Kernel
 Summary: Utilities for managing the global file system (GFS2)
@@ -45,6 +45,8 @@ Patch0: bz1348703-fsck_gfs2_undo_functions_can_stop_too_early_on_duplicates.patc
 Patch1: bz1350597-fsck_gfs2_link_count_checking_wrong_inode_s_formal_inode_number.patch
 Patch2: bz1350600-fsck_gfs2_check_formal_inode_number_when_links_go_from_1_to_2.patch
 Patch3: bz1326508-gfs2_5_Clarify_the_availability_of_the_loccookie_option.patch
+Patch4: bz1437009-mkfs_gfs2_Disable_rgrp_alignment_when_dev_topology_is_unsuitable.patch
+Patch5: bz1437125-gfs2_grow_Disable_rgrp_alignment_when_dev_topology_is_unsuitable.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
@@ -54,6 +56,8 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 %patch1 -p1 -b .bz1350597-fsck_gfs2_link_count_checking_wrong_inode_s_formal_inode_number
 %patch2 -p1 -b .bz1350600-fsck_gfs2_check_formal_inode_number_when_links_go_from_1_to_2
 %patch3 -p1 -b .bz1326508-gfs2_5_Clarify_the_availability_of_the_loccookie_option
+%patch4 -p1 -b .bz1437009-mkfs_gfs2_Disable_rgrp_alignment_when_dev_topology_is_unsuitable
+%patch5 -p1 -b .bz1437125-gfs2_grow_Disable_rgrp_alignment_when_dev_topology_is_unsuitable
 
 %build
 ./autogen.sh
@@ -99,6 +103,12 @@ file systems.
 %{_prefix}/lib/udev/rules.d/82-gfs2-withdraw.rules
 
 %changelog
+* Wed Mar 29 2017 Andrew Price <anprice@redhat.com> - 3.1.9-3.1
+- mkfs.gfs2: Disable rgrp alignment when dev topology is unsuitable
+  Resolves: rhbz#1437009
+- gfs2_grow: Disable rgrp alignment when dev topology is unsuitable
+  Resolves: rhbz#1437125
+
 * Wed Jul 20 2016 Andrew Price <anprice@redhat.com> - 3.1.9-3
 - gfs2(5): Clarify the availability of the loccookie option
   Resolves: rhbz#1326508
