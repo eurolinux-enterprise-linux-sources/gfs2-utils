@@ -12,7 +12,7 @@
 
 Name: gfs2-utils
 Version: 3.1.10
-Release: 3%{?dist}
+Release: 6%{?dist}
 License: GPLv2+ and LGPLv2+
 Group: System Environment/Kernel
 Summary: Utilities for managing the global file system (GFS2)
@@ -29,7 +29,7 @@ BuildRequires: flex
 BuildRequires: libblkid-devel
 BuildRequires: libuuid-devel
 BuildRequires: check-devel
-URL: https://fedorahosted.org/cluster/wiki/HomePage
+URL: https://pagure.io/gfs2-utils
 
 %if 0%{?rhel} > 0
 ExclusiveArch: x86_64 s390x ppc64le
@@ -47,7 +47,9 @@ Patch1: bz1436772-gfs2_grow_Disable_rgrp_alignment_when_dev_topology_is_unsuitab
 Patch2: bz1440269-1-mkfs_gfs2_Free_unnecessary_cached_pages_disable_readahead.patch
 Patch3: bz1440269-2-mkfs_gfs2_Fix_resource_group_alignment_issue.patch
 Patch4: bz1440269-3-libgfs2_Issue_one_write_per_rgrp_when_creating_them.patch
-
+Patch5: bz1482542-gfs2_edit_savemeta_Fix_up_saving_of_dinodes_symlinks.patch
+Patch6: bz1507091-fsck_gfs2_Make_p_n_and_y_conflicting_options.patch
+Patch7: bz1518938-gfs2_edit_Print_offsets_of_indirect_pointers.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
@@ -58,6 +60,9 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 %patch2 -p1 -b .bz1440269-1-mkfs_gfs2_Free_unnecessary_cached_pages_disable_readahead
 %patch3 -p1 -b .bz1440269-2-mkfs_gfs2_Fix_resource_group_alignment_issue
 %patch4 -p1 -b .bz1440269-3-libgfs2_Issue_one_write_per_rgrp_when_creating_them
+%patch5 -p1 -b .bz1482542-gfs2_edit_savemeta_Fix_up_saving_of_dinodes_symlinks
+%patch6 -p1 -b .bz1507091-fsck_gfs2_Make_p_n_and_y_conflicting_options
+%patch7 -p1 -b .bz1518938-gfs2_edit_Print_offsets_of_indirect_pointers
 
 %build
 ./autogen.sh
@@ -103,6 +108,20 @@ file systems.
 %{_prefix}/lib/udev/rules.d/82-gfs2-withdraw.rules
 
 %changelog
+* Tue Dec 05 2017 Andrew Price <anprice@redhat.com> - 3.1.10-6
+- gfs2_edit: Print offsets of indirect pointers
+  Resolves: rhbz#1518938
+
+* Thu Nov 02 2017 Andrew Price <anprice@redhat.com> - 3.1.10-5
+- Update URL in spec file
+  Resolves: rhbz#1501738
+- fsck.gfs2: Make -p, -n and -y conflicting options
+  Resolves: rhbz#1507091
+
+* Fri Aug 18 2017 Andrew Price <anprice@redhat.com> - 3.1.10-4
+- gfs2_edit savemeta: Fix up saving of dinodes/symlinks
+  Resolves: rhbz#1482542
+
 * Tue Apr 18 2017 Andrew Price <anprice@redhat.com> - 3.1.10-3
 - libgfs2: Issue one write per rgrp when creating them
 - mkfs.gfs2: Fix resource group alignment issue
