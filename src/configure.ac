@@ -92,10 +92,6 @@ AC_ARG_ENABLE([debug],
 AC_ARG_ENABLE([gcov],
 	AC_HELP_STRING([--enable-gcov],[enable coverage instrumentation [default=no]]),
 	[], [enable_gcov="no"])
-AC_ARG_ENABLE([gprof],
-	AC_HELP_STRING([--enable-gprof],[enable profiling instrumentation [default=no]]),
-	[], [enable_gprof="no"])
-
 
 # We use the Check framework for unit tests
 PKG_CHECK_MODULES([check], [check >= 0.9.8],
@@ -105,9 +101,6 @@ AM_CONDITIONAL([HAVE_CHECK], [test "x$have_check" = "xyes"])
 
 PKG_CHECK_MODULES([zlib],[zlib])
 PKG_CHECK_MODULES([blkid],[blkid])
-PKG_CHECK_MODULES([uuid],[uuid],
-                  [have_uuid=yes],
-                  [have_uuid=no])
 
 # old versions of ncurses don't ship pkg-config files
 PKG_CHECK_MODULES([ncurses],[ncurses],,
@@ -129,19 +122,13 @@ AC_CHECK_HEADER([linux/fs.h], [], [AC_MSG_ERROR([Unable to find linux/fs.h])])
 AC_CHECK_HEADER([linux/types.h], [], [AC_MSG_ERROR([Unable to find linux/types.h])])
 AC_CHECK_HEADER([linux/limits.h], [], [AC_MSG_ERROR([Unable to find linux/limits.h])])
 AC_CHECK_HEADER([linux/gfs2_ondisk.h], [], [AC_MSG_ERROR([Unable to find linux/gfs2_ondisk.h])])
-AC_CHECK_MEMBER([struct gfs2_sb.sb_uuid], [sb_has_uuid=yes], [sb_has_uuid=no],
-                [[#include <linux/gfs2_ondisk.h>]])
+AC_CHECK_MEMBER([struct gfs2_sb.sb_uuid], [], [], [[#include <linux/gfs2_ondisk.h>]])
 AC_CHECK_MEMBER([struct gfs2_leaf.lf_inode],[AC_DEFINE([GFS2_HAS_LEAF_HINTS],[],[Leaf block hints])],
                 [], [[#include <linux/gfs2_ondisk.h>]])
 AC_CHECK_MEMBER([struct gfs2_dirent.de_rahead],[AC_DEFINE([GFS2_HAS_DE_RAHEAD],[],[Dirent readahead field])],
                 [], [[#include <linux/gfs2_ondisk.h>]])
 AC_CHECK_MEMBER([struct gfs2_dirent.de_cookie],[AC_DEFINE([GFS2_HAS_DE_COOKIE],[],[Dirent cookie field])],
                 [], [[#include <linux/gfs2_ondisk.h>]])
-
-# libuuid is only required if struct gfs2_sb.sb_uuid exists
-if test "$sb_has_uuid" = "yes" -a "$have_uuid" = "no"; then
-	AC_MSG_ERROR([libuuid is required for this version of gfs2])
-fi
 
 # *FLAGS handling
 ENV_CFLAGS="$CFLAGS"
@@ -152,10 +139,8 @@ ENV_LDFLAGS="$LDFLAGS"
 if test "x${enable_debug}" = xyes; then
 	AC_DEFINE_UNQUOTED([DEBUG], [1], [Compiling Debugging code])
 	OPT_CFLAGS="-O0"
-	OPT_CPPFLAGS=""
 else
 	OPT_CFLAGS="-O2"
-	OPT_CPPFLAGS="-D_FORTIFY_SOURCE=2"
 fi
 
 # gdb flags
@@ -175,14 +160,6 @@ if test "x${enable_gcov}" = xyes; then
 		enable_debug="no (gcov enabled)"
 	fi
 	OPT_CFLAGS="-O0 $GCOV_CFLAGS"
-fi
-
-if test "x${enable_gprof}" = xyes; then
-	GPROF_CFLAGS="-pg"
-	if ! cc_supports_flag $GPROF_CFLAGS; then
-		AC_MSG_ERROR([your compiler does not support gprof instrumentation])
-	fi
-	OPT_CFLAGS="$OPT_CFLAGS $GPROF_CFLAGS"
 fi
 
 # extra warnings
@@ -214,7 +191,7 @@ for j in $WARNLIST; do
 done
 
 CFLAGS="$ENV_CFLAGS $OPT_CFLAGS $GDB_FLAGS $EXTRA_WARNINGS $WERROR_CFLAGS"
-CPPFLAGS="-I\$(top_builddir)/make -I\$(top_srcdir)/make -I. $ENV_CPPFLAGS $OPT_CPPFLAGS"
+CPPFLAGS="-I\$(top_builddir)/make -I\$(top_srcdir)/make -I. $ENV_CPPFLAGS"
 LDFLAGS="$ENV_LDFLAGS"
 
 AC_CONFIG_TESTDIR([tests], [gfs2/libgfs2:gfs2/mkfs:gfs2/fsck:gfs2/edit:gfs2/convert:gfs2/tune:tests])
@@ -249,7 +226,6 @@ echo " udevdir           : $udevdir"
 echo " ------------------"
 echo " debug build       : $enable_debug"
 echo " C unit tests      : $have_check"
-echo " gprof build       : $enable_gprof"
 echo " gcov build        : $enable_gcov"
 echo
 echo "Now run 'make' to build and 'make check' to run tests"

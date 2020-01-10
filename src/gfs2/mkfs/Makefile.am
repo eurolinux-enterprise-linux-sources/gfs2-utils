@@ -22,12 +22,8 @@ mkfs_gfs2_SOURCES = \
 	progress.h
 
 mkfs_gfs2_CPPFLAGS = $(COMMON_CPPFLAGS)
-mkfs_gfs2_CFLAGS = \
-	$(blkid_CFLAGS) \
-	$(uuid_CFLAGS)
-mkfs_gfs2_LDFLAGS = \
-	$(blkid_LIBS) \
-	$(uuid_LIBS)
+mkfs_gfs2_CFLAGS = $(blkid_CFLAGS)
+mkfs_gfs2_LDFLAGS = $(blkid_LIBS)
 mkfs_gfs2_LDADD	= $(top_builddir)/gfs2/libgfs2/libgfs2.la
 
 gfs2_grow_SOURCES = \
@@ -36,9 +32,7 @@ gfs2_grow_SOURCES = \
 
 gfs2_grow_CPPFLAGS = $(COMMON_CPPFLAGS)
 gfs2_grow_CFLAGS = $(blkid_CFLAGS)
-gfs2_grow_LDFLAGS = \
-	$(blkid_LIBS) \
-	$(uuid_LIBS)
+gfs2_grow_LDFLAGS = $(blkid_LIBS)
 gfs2_grow_LDADD = $(top_builddir)/gfs2/libgfs2/libgfs2.la
 
 gfs2_jadd_SOURCES = \
@@ -47,5 +41,4 @@ gfs2_jadd_SOURCES = \
 
 gfs2_jadd_CPPFLAGS = $(COMMON_CPPFLAGS)
 gfs2_jadd_LDADD = $(top_builddir)/gfs2/libgfs2/libgfs2.la
-gfs2_jadd_LDFLAGS = $(uuid_LIBS)
 

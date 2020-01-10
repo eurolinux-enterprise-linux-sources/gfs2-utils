@@ -30,10 +30,6 @@
 #include "gfs2_mkfs.h"
 #include "progress.h"
 
-#ifdef GFS2_HAS_UUID
-#include <uuid.h>
-#endif
-
 static void print_usage(const char *prog_name)
 {
 	int i;
@@ -136,7 +132,6 @@ struct mkfs_opts {
 	unsigned got_lockproto:1;
 	unsigned got_locktable:1;
 	unsigned got_device:1;
-	unsigned got_topol:1;
 
 	unsigned override:1;
 	unsigned quiet:1;
@@ -257,33 +252,6 @@ static unsigned parse_bool(struct mkfs_opts *opts, const char *key, const char *
 	exit(-1);
 }
 
-static int parse_topology(struct mkfs_opts *opts, char *str)
-{
-	char *opt;
-	unsigned i = 0;
-	unsigned long *topol[5] = {
-		&opts->dev.alignment_offset,
-		&opts->dev.logical_sector_size,
-		&opts->dev.minimum_io_size,
-		&opts->dev.optimal_io_size,
-		&opts->dev.physical_sector_size
-	};
-
-	while ((opt = strsep(&str, ":")) != NULL) {
-		if (i > 4) {
-			fprintf(stderr, "Too many topology values.\n");
-			return 1;
-		}
-		*topol[i] = parse_ulong(opts, "test_topology", opt);
-		i++;
-	}
-	if (i < 5) {
-		fprintf(stderr, "Too few topology values.\n");
-		return 1;
-	}
-	return 0;
-}
-
 static void opt_parse_extended(char *str, struct mkfs_opts *opts)
 {
 	char *opt;
@@ -302,11 +270,6 @@ static void opt_parse_extended(char *str, struct mkfs_opts *opts)
 			opts->got_swidth = 1;
 		} else if (strcmp("align", key) == 0) {
 			opts->align = parse_bool(opts, "align", val);
-		} else if (strcmp("test_topology", key) == 0) {
-			if (parse_topology(opts, val) != 0)
-				exit(-1);
-			opts->got_topol = (opts->dev.logical_sector_size != 0 &&
-	                                   opts->dev.physical_sector_size != 0);
 		} else if (strcmp("help", key) == 0) {
 			print_ext_opts();
 			exit(0);
@@ -459,29 +422,34 @@ static void test_locking(struct mkfs_opts *opts)
 
 static void are_you_sure(void)
 {
-	while (1) {
-		char *line = NULL;
-		size_t len = 0;
-		int ret;
-		int res;
+	char *line = NULL;
+	size_t len = 0;
+	int ret = -1;
+	int res = 0;
 
+	do{
 		/* Translators: We use rpmatch(3) to match the answers to y/n
 		   questions in the user's own language, so the [y/n] here must also be
 		   translated to match one of the letters in the pattern printed by
 		   `locale -k yesexpr` and one of the letters in the pattern printed by
 		   `locale -k noexpr` */
-		printf( _("Are you sure you want to proceed? [y/n] "));
+		printf( _("Are you sure you want to proceed? [y/n]"));
 		ret = getline(&line, &len, stdin);
 		res = rpmatch(line);
-		free(line);
-		if (ret <= 0)
-			continue;
-		if (res == 1) /* Yes */
+		
+		if (res > 0){
+			free(line);
 			return;
-		if (res == 0) /* No */
-			exit(1);
-		/* Unrecognized input; go again. */
-	};
+		}
+		if (!res){
+			printf("\n");
+			die( _("Aborted.\n"));
+		}
+		
+	}while(ret >= 0);
+
+	if(line)
+		free(line);
 }
 
 static unsigned choose_blocksize(struct mkfs_opts *opts)
@@ -489,21 +457,16 @@ static unsigned choose_blocksize(struct mkfs_opts *opts)
 	unsigned int x;
 	unsigned int bsize = opts->bsize;
 	struct mkfs_dev *dev = &opts->dev;
-	int got_topol = (dev->got_topol || opts->got_topol);
 
-	if (got_topol && opts->debug) {
+	if (dev->got_topol && opts->debug) {
 		printf("alignment_offset: %lu\n", dev->alignment_offset);
 		printf("logical_sector_size: %lu\n", dev->logical_sector_size);
 		printf("minimum_io_size: %lu\n", dev->minimum_io_size);
 		printf("optimal_io_size: %lu\n", dev->optimal_io_size);
 		printf("physical_sector_size: %lu\n", dev->physical_sector_size);
 	}
-	if (got_topol && dev->alignment_offset != 0) {
-		fprintf(stderr,
-		  _("Warning: device is not properly aligned. This may harm performance.\n"));
-		dev->physical_sector_size = dev->logical_sector_size;
-	}
-	if (!opts->got_bsize && got_topol) {
+
+	if (!opts->got_bsize && dev->got_topol) {
 		if (dev->optimal_io_size <= getpagesize() &&
 		    dev->optimal_io_size >= dev->minimum_io_size)
 			bsize = dev->optimal_io_size;
@@ -579,13 +542,8 @@ static void print_results(struct gfs2_sb *sb, struct mkfs_opts *opts, uint64_t r
 	printf("%-27s\"%s\"\n", _("Locking protocol:"), opts->lockproto);
 	printf("%-27s\"%s\"\n", _("Lock table:"), opts->locktable);
 #ifdef GFS2_HAS_UUID
-	{
-	char readable_uuid[36+1];
-
-	uuid_unparse(sb->sb_uuid, readable_uuid);
 	/* Translators: "UUID" = universally unique identifier. */
-	printf("%-27s%s\n", _("UUID:"), readable_uuid);
-	}
+	printf("%-27s%s\n", _("UUID:"), str_uuid(sb->sb_uuid));
 #endif
 }
 
@@ -632,14 +590,8 @@ static lgfs2_rgrps_t rgs_init(struct mkfs_opts *opts, struct gfs2_sbd *sdp)
 			al_off = opts->sunit / sdp->bsize;
 		}
 	} else if (opts->align) {
-		if (opts->dev.optimal_io_size <= opts->dev.physical_sector_size ||
-		    opts->dev.minimum_io_size <= opts->dev.physical_sector_size ||
-		    (opts->dev.optimal_io_size % opts->dev.minimum_io_size) != 0) {
-			/* If optimal_io_size is not a multiple of minimum_io_size then
-			   the values are not reliable swidth and sunit values, so disable
-			   rgrp alignment */
-			opts->align = 0;
-		} else {
+		if ((opts->dev.minimum_io_size > opts->dev.physical_sector_size) &&
+		    (opts->dev.optimal_io_size > opts->dev.physical_sector_size)) {
 			al_base = opts->dev.optimal_io_size / sdp->bsize;
 			al_off = opts->dev.minimum_io_size / sdp->bsize;
 		}
@@ -890,8 +842,7 @@ static int probe_contents(struct mkfs_dev *dev)
 			dev->minimum_io_size = blkid_topology_get_minimum_io_size(tp);
 			dev->optimal_io_size = blkid_topology_get_optimal_io_size(tp);
 			dev->physical_sector_size = blkid_topology_get_physical_sector_size(tp);
-			dev->got_topol = (dev->logical_sector_size != 0 &&
-	                                  dev->physical_sector_size != 0);
+			dev->got_topol = 1;
 		}
 	}
 
@@ -899,7 +850,7 @@ static int probe_contents(struct mkfs_dev *dev)
 	return 0;
 }
 
-static void open_dev(struct mkfs_dev *dev, int withprobe)
+static void open_dev(struct mkfs_dev *dev)
 {
 	int error;
 
@@ -927,7 +878,9 @@ static void open_dev(struct mkfs_dev *dev, int withprobe)
 		fprintf(stderr, _("'%s' is not a block device or regular file\n"), dev->path);
 		exit(1);
 	}
-	if (withprobe && (probe_contents(dev) != 0))
+
+	error = probe_contents(dev);
+	if (error)
 		exit(1);
 }
 
@@ -948,7 +901,7 @@ int main(int argc, char *argv[])
 	opts_get(argc, argv, &opts);
 	opts_check(&opts);
 
-	open_dev(&opts.dev, !opts.got_topol);
+	open_dev(&opts.dev);
 	bsize = choose_blocksize(&opts);
 
 	if (S_ISREG(opts.dev.stat.st_mode)) {

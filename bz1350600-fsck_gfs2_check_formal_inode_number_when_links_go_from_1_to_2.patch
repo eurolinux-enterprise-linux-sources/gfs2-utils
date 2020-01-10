@@ -1,0 +1,272 @@
+commit c78fedfd07a455e934b0a603c9c2e124b9522662
+Author: Bob Peterson <rpeterso@redhat.com>
+Date:   Fri Jun 24 08:53:41 2016 -0500
+
+    fsck.gfs2: check formal inode number when links go from 1 to 2
+    
+    Before commit f2ffb1e, function basic_dentry_checks had access to a
+    complete inode tree, so it was able to check the formal inode number
+    of every dentry against what it previously found in the inode in
+    pass1. But commit f2ffb1e changed function basic_dentry_checks so
+    that it bypasses the check if the reference count is 1, which is
+    most likely, and it's going to be correct 99% of the time. The
+    comments state:
+    
+    "Since we don't have ii or di, the only way to validate formal_ino
+    is to read in the inode, which would kill performance. So skip it
+    for now."
+    
+    The problem is, problems can slip through, undetected, and will
+    only be fixed with a second run of fsck.gfs2. For example, during
+    testing, I found a set of gfs2 metadata that had two dentries
+    pointing to the same dinode. The first dentry encountered by pass2
+    was wrong, but it was not checked for this reason. The second
+    dentry was correct. The first run of fsck did not catch the problem
+    and reacted by setting link count to 2 for the dinode, keeping
+    both dentries. The second run found the problem and fixed it,
+    changing the link count back to 1 and deleting the bad dentry.
+    
+    Note that this problem only applies to non-directories, since
+    directories will have a value in the dirtree to check against.
+    
+    This patch solves the problem with a new "innocent until proven
+    guilty" approach. When the first dentry reference is found, it is
+    assumed to be correct (most files will have a single link).
+    When the second dentry reference is found, it goes back and checks
+    the original reference. To do that, it takes the (time expensive)
+    step of traversing the directory tree, searching every directory
+    for the original reference. Once the original dentry is found, it
+    checks its formal inode number against the one that has been proven
+    correct. This situation ought to be quite rare because the vast
+    number of files will have a single correct link. So hopefully only
+    valid hard links will cause the slow tree traversal. Once the first
+    dentry is found, the tree traversal stops and pass2 continues its
+    work.
+    
+    Signed-off-by: Bob Peterson <rpeterso@redhat.com>
+    
+    This is a RHEL7 port of this upstream patch:
+    https://git.fedorahosted.org/cgit/gfs2-utils.git/commit/?id=ab92c41323babc6b6578cddfb4324ae545927f88
+    
+    rhbz#1350600
+
+diff --git a/gfs2/fsck/link.c b/gfs2/fsck/link.c
+index 00636d7..8ea09c7 100644
+--- a/gfs2/fsck/link.c
++++ b/gfs2/fsck/link.c
+@@ -88,33 +88,33 @@ int incr_link_count(struct gfs2_inum no, struct gfs2_inode *ip,
+ 	di = dirtree_find(no.no_addr);
+ 	if (di) {
+ 		if (di->dinode.no_formal_ino != no.no_formal_ino)
+-			return 1;
++			return incr_link_ino_mismatch;
+ 
+ 		di->counted_links++;
+ 		whyincr(no.no_addr, why, referenced_from, di->counted_links);
+-		return 0;
++		return incr_link_good;
+ 	}
+ 	ii = inodetree_find(no.no_addr);
+ 	/* If the list has entries, look for one that matches inode_no */
+ 	if (ii) {
+ 		if (ii->di_num.no_formal_ino != no.no_formal_ino)
+-			return 1;
++			return incr_link_ino_mismatch;
+ 
+ 		ii->counted_links++;
+ 		whyincr(no.no_addr, why, referenced_from, ii->counted_links);
+-		return 0;
++		return incr_link_good;
+ 	}
+ 	if (link1_type(&clink1map, no.no_addr) != 1) {
+ 		link1_set(&clink1map, no.no_addr, 1);
+ 		whyincr(no.no_addr, why, referenced_from, 1);
+-		return 0;
++		return incr_link_good;
+ 	}
+ 
+ 	link_ip = fsck_load_inode(ip->i_sbd, no.no_addr);
+ 	/* Check formal ino against dinode before adding to inode tree. */
+ 	if (no.no_formal_ino != link_ip->i_di.di_num.no_formal_ino) {
+ 		fsck_inode_put(&link_ip);
+-		return 1;
++		return incr_link_ino_mismatch; /* inode mismatch */
+ 	}
+ 	/* Move it from the link1 maps to a real inode tree entry */
+ 	link1_set(&nlink1map, no.no_addr, 0);
+@@ -130,7 +130,7 @@ int incr_link_count(struct gfs2_inum no, struct gfs2_inode *ip,
+ 			   (unsigned long long)referenced_from,
+ 			   (unsigned long long)no.no_addr);
+ 		fsck_inode_put(&link_ip);
+-		return -1;
++		return incr_link_bad;
+ 	}
+ 	ii->di_num = link_ip->i_di.di_num;
+ 	fsck_inode_put(&link_ip);
+@@ -138,7 +138,11 @@ int incr_link_count(struct gfs2_inum no, struct gfs2_inode *ip,
+ 			     nlink1map */
+ 	ii->counted_links = 2;
+ 	whyincr(no.no_addr, why, referenced_from, ii->counted_links);
+-	return 0;
++	/* We transitioned a dentry link count from 1 to 2, and we know it's
++	   not a directory. But the new reference has the correct formal
++	   inode number, so the first reference is suspect: we need to
++	   check it in case it's a bad reference, and not just a hard link. */
++	return incr_link_check_orig;
+ }
+ 
+ #define whydecr(no_addr, why, referenced_from, counted_links)		\
+diff --git a/gfs2/fsck/link.h b/gfs2/fsck/link.h
+index 14534e5..a5dd1c8 100644
+--- a/gfs2/fsck/link.h
++++ b/gfs2/fsck/link.h
+@@ -4,6 +4,13 @@
+ extern struct gfs2_bmap nlink1map; /* map of dinodes with nlink == 1 */
+ extern struct gfs2_bmap clink1map; /* map of dinodes w/counted links == 1 */
+ 
++enum {
++	incr_link_bad = -1,
++	incr_link_good = 0,
++	incr_link_ino_mismatch = 1,
++	incr_link_check_orig = 2,
++};
++
+ int link1_set(struct gfs2_bmap *bmap, uint64_t bblock, int mark);
+ int set_di_nlink(struct gfs2_inode *ip);
+ int incr_link_count(struct gfs2_inum no, struct gfs2_inode *ip,
+diff --git a/gfs2/fsck/pass2.c b/gfs2/fsck/pass2.c
+index 8ac5547..808cf21 100644
+--- a/gfs2/fsck/pass2.c
++++ b/gfs2/fsck/pass2.c
+@@ -667,6 +667,113 @@ static int basic_dentry_checks(struct gfs2_inode *ip, struct gfs2_dirent *dent,
+ 	return 0;
+ }
+ 
++static int dirref_find(struct gfs2_inode *ip, struct gfs2_dirent *dent,
++		       struct gfs2_dirent *prev, struct gfs2_buffer_head *bh,
++		       char *filename, uint32_t *count, int *lindex,
++		       void *private)
++{
++	/* the metawalk_fxn's private field must be set to the dentry
++	 * block we want to clear */
++	struct gfs2_inum *entry = (struct gfs2_inum *)private;
++	struct gfs2_dirent dentry, *de;
++	char fn[MAX_FILENAME];
++
++	memset(&dentry, 0, sizeof(struct gfs2_dirent));
++	gfs2_dirent_in(&dentry, (char *)dent);
++	de = &dentry;
++
++	if (de->de_inum.no_addr != entry->no_addr) {
++		(*count)++;
++		return 0;
++	}
++	if (de->de_inum.no_formal_ino == dent->de_inum.no_formal_ino) {
++		log_debug("Formal inode number matches; must be a hard "
++			  "link.\n");
++		goto out;
++	}
++	log_err(_("The original reference to inode %lld (0x%llx) from "
++		  "directory %lld (0x%llx) has the wrong 'formal' inode "
++		  "number.\n"), (unsigned long long)entry->no_addr,
++		(unsigned long long)entry->no_addr,
++		(unsigned long long)ip->i_di.di_num.no_addr,
++		(unsigned long long)ip->i_di.di_num.no_addr);
++	memset(fn, 0, sizeof(fn));
++	if (de->de_name_len < MAX_FILENAME)
++		strncpy(fn, filename, de->de_name_len);
++	else
++		strncpy(fn, filename, MAX_FILENAME - 1);
++	log_err(_("The bad reference '%s' had formal inode number: %lld "
++		  "(0x%llx) but the correct value is: %lld (0x%llx)\n"),
++		fn, (unsigned long long)de->de_inum.no_formal_ino,
++		(unsigned long long)de->de_inum.no_formal_ino,
++		(unsigned long long)entry->no_formal_ino,
++		(unsigned long long)entry->no_formal_ino);
++	if (!query(_("Delete the bad directory entry? (y/n) "))) {
++		log_err(_("The corrupt directory entry was not fixed.\n"));
++		goto out;
++	}
++	decr_link_count(entry->no_addr, ip->i_di.di_num.no_addr,
++			ip->i_sbd->gfs1, _("bad original reference"));
++	dirent2_del(ip, bh, prev, dent);
++	log_err(_("The corrupt directory entry '%s' was deleted.\n"), fn);
++out:
++	return -1; /* force check_dir to stop; don't waste time. */
++}
++
++/**
++ * check_suspicious_dirref - double-check a questionable first dentry ref
++ *
++ * This function is called when a dentry has caused us to increment the
++ * link count to a file from 1 to 2, and we know the object pointed to is
++ * not a directory. (Most likely, it'a a file). The second directory to
++ * reference the dinode has the correct formal inode number, but when we
++ * created the original reference in the counted links bitmap (clink1map),
++ * we had no way to check the formal inode number. (Well, we could have read
++ * in the dinode, but that would kill fsck.gfs2 performance.)
++ * So now we have to walk through the directory tree and find that original
++ * reference so make sure it's a valid reference. If the formal inode number
++ * is the same, it's a hard link (which is unlikely for gfs2). If it's not
++ * the same, that's an error, and we need to delete the damaged original
++ * dentry, since we failed to detect the problem earlier.
++ */
++static int check_suspicious_dirref(struct gfs2_sbd *sdp,
++				   struct gfs2_inum *entry)
++{
++	struct osi_node *tmp, *next = NULL;
++	struct dir_info *dt;
++	struct gfs2_inode *ip;
++	uint64_t dirblk;
++	int error = FSCK_OK;
++	struct metawalk_fxns dirref_hunt = {
++		.private = (void *)entry,
++		.check_dentry = dirref_find,
++	};
++
++	log_debug("This dentry is good, but since this is a second "
++		  "reference to block 0x%llx, we need to check the "
++		  "original.\n", (unsigned long long)entry->no_addr);
++	for (tmp = osi_first(&dirtree); tmp; tmp = next) {
++		next = osi_next(tmp);
++		dt = (struct dir_info *)tmp;
++		dirblk = dt->dinode.no_addr;
++		if (skip_this_pass || fsck_abort) /* asked to skip the rest */
++			break;
++		ip = fsck_load_inode(sdp, dirblk);
++		if (ip == NULL) {
++			stack;
++			return FSCK_ERROR;
++		}
++		error = check_dir(sdp, ip, &dirref_hunt);
++		fsck_inode_put(&ip);
++		/* Error just means we found the dentry and dealt with it. */
++		if (error)
++			break;
++	}
++	log_debug("Original reference check complete. Found = %d.\n",
++		  error ? 1 : 0);
++	return 0;
++}
++
+ /* FIXME: should maybe refactor this a bit - but need to deal with
+  * FIXMEs internally first */
+ static int check_dentry(struct gfs2_inode *ip, struct gfs2_dirent *dent,
+@@ -870,10 +977,13 @@ static int check_dentry(struct gfs2_inode *ip, struct gfs2_dirent *dent,
+ dentry_is_valid:
+ 	/* This directory inode links to this inode via this dentry */
+ 	error = incr_link_count(entry, ip, _("valid reference"));
+-	if (error > 0 &&
+-	    bad_formal_ino(ip, dent, entry, tmp_name, q, de, bh) == 1)
+-		goto nuke_dentry;
+-
++	if (error == incr_link_check_orig) {
++		error = check_suspicious_dirref(sdp, &entry);
++	} else if (error == incr_link_ino_mismatch) {
++		log_err("incr_link_count err=%d.\n", error);
++		if (bad_formal_ino(ip, dent, entry, tmp_name, q, de, bh) == 1)
++			goto nuke_dentry;
++	}
+ 	(*count)++;
+ 	ds->entry_count++;
+ 	/* End of checks */

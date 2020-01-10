@@ -195,13 +195,8 @@ static int bad_formal_ino(struct gfs2_inode *ip, struct gfs2_dirent *dent,
 		di = dirtree_find(entry.no_addr);
 		if (di)
 			inum = di->dinode;
-		else if (link1_type(&clink1map, entry.no_addr) == 1) {
-			struct gfs2_inode *dent_ip;
-
-			dent_ip = fsck_load_inode(ip->i_sbd, entry.no_addr);
-			inum = dent_ip->i_di.di_num;
-			fsck_inode_put(&dent_ip);
-		}
+		else if (link1_type(&clink1map, entry.no_addr) == 1)
+			inum = entry;
 	}
 	log_err( _("Directory entry '%s' pointing to block %llu (0x%llx) in "
 		   "directory %llu (0x%llx) has the wrong 'formal' inode "
@@ -667,113 +662,6 @@ static int basic_dentry_checks(struct gfs2_inode *ip, struct gfs2_dirent *dent,
 	return 0;
 }
 
-static int dirref_find(struct gfs2_inode *ip, struct gfs2_dirent *dent,
-		       struct gfs2_dirent *prev, struct gfs2_buffer_head *bh,
-		       char *filename, uint32_t *count, int *lindex,
-		       void *private)
-{
-	/* the metawalk_fxn's private field must be set to the dentry
-	 * block we want to clear */
-	struct gfs2_inum *entry = (struct gfs2_inum *)private;
-	struct gfs2_dirent dentry, *de;
-	char fn[MAX_FILENAME];
-
-	memset(&dentry, 0, sizeof(struct gfs2_dirent));
-	gfs2_dirent_in(&dentry, (char *)dent);
-	de = &dentry;
-
-	if (de->de_inum.no_addr != entry->no_addr) {
-		(*count)++;
-		return 0;
-	}
-	if (de->de_inum.no_formal_ino == dent->de_inum.no_formal_ino) {
-		log_debug("Formal inode number matches; must be a hard "
-			  "link.\n");
-		goto out;
-	}
-	log_err(_("The original reference to inode %lld (0x%llx) from "
-		  "directory %lld (0x%llx) has the wrong 'formal' inode "
-		  "number.\n"), (unsigned long long)entry->no_addr,
-		(unsigned long long)entry->no_addr,
-		(unsigned long long)ip->i_di.di_num.no_addr,
-		(unsigned long long)ip->i_di.di_num.no_addr);
-	memset(fn, 0, sizeof(fn));
-	if (de->de_name_len < MAX_FILENAME)
-		strncpy(fn, filename, de->de_name_len);
-	else
-		strncpy(fn, filename, MAX_FILENAME - 1);
-	log_err(_("The bad reference '%s' had formal inode number: %lld "
-		  "(0x%llx) but the correct value is: %lld (0x%llx)\n"),
-		fn, (unsigned long long)de->de_inum.no_formal_ino,
-		(unsigned long long)de->de_inum.no_formal_ino,
-		(unsigned long long)entry->no_formal_ino,
-		(unsigned long long)entry->no_formal_ino);
-	if (!query(_("Delete the bad directory entry? (y/n) "))) {
-		log_err(_("The corrupt directory entry was not fixed.\n"));
-		goto out;
-	}
-	decr_link_count(entry->no_addr, ip->i_di.di_num.no_addr,
-			ip->i_sbd->gfs1, _("bad original reference"));
-	dirent2_del(ip, bh, prev, dent);
-	log_err(_("The corrupt directory entry '%s' was deleted.\n"), fn);
-out:
-	return -1; /* force check_dir to stop; don't waste time. */
-}
-
-/**
- * check_suspicious_dirref - double-check a questionable first dentry ref
- *
- * This function is called when a dentry has caused us to increment the
- * link count to a file from 1 to 2, and we know the object pointed to is
- * not a directory. (Most likely, it'a a file). The second directory to
- * reference the dinode has the correct formal inode number, but when we
- * created the original reference in the counted links bitmap (clink1map),
- * we had no way to check the formal inode number. (Well, we could have read
- * in the dinode, but that would kill fsck.gfs2 performance.)
- * So now we have to walk through the directory tree and find that original
- * reference so make sure it's a valid reference. If the formal inode number
- * is the same, it's a hard link (which is unlikely for gfs2). If it's not
- * the same, that's an error, and we need to delete the damaged original
- * dentry, since we failed to detect the problem earlier.
- */
-static int check_suspicious_dirref(struct gfs2_sbd *sdp,
-				   struct gfs2_inum *entry)
-{
-	struct osi_node *tmp, *next = NULL;
-	struct dir_info *dt;
-	struct gfs2_inode *ip;
-	uint64_t dirblk;
-	int error = FSCK_OK;
-	struct metawalk_fxns dirref_hunt = {
-		.private = (void *)entry,
-		.check_dentry = dirref_find,
-	};
-
-	log_debug("This dentry is good, but since this is a second "
-		  "reference to block 0x%llx, we need to check the "
-		  "original.\n", (unsigned long long)entry->no_addr);
-	for (tmp = osi_first(&dirtree); tmp; tmp = next) {
-		next = osi_next(tmp);
-		dt = (struct dir_info *)tmp;
-		dirblk = dt->dinode.no_addr;
-		if (skip_this_pass || fsck_abort) /* asked to skip the rest */
-			break;
-		ip = fsck_load_inode(sdp, dirblk);
-		if (ip == NULL) {
-			stack;
-			return FSCK_ERROR;
-		}
-		error = check_dir(sdp, ip, &dirref_hunt);
-		fsck_inode_put(&ip);
-		/* Error just means we found the dentry and dealt with it. */
-		if (error)
-			break;
-	}
-	log_debug("Original reference check complete. Found = %d.\n",
-		  error ? 1 : 0);
-	return 0;
-}
-
 /* FIXME: should maybe refactor this a bit - but need to deal with
  * FIXMEs internally first */
 static int check_dentry(struct gfs2_inode *ip, struct gfs2_dirent *dent,
@@ -977,13 +865,10 @@ static int check_dentry(struct gfs2_inode *ip, struct gfs2_dirent *dent,
 dentry_is_valid:
 	/* This directory inode links to this inode via this dentry */
 	error = incr_link_count(entry, ip, _("valid reference"));
-	if (error == incr_link_check_orig) {
-		error = check_suspicious_dirref(sdp, &entry);
-	} else if (error == incr_link_ino_mismatch) {
-		log_err("incr_link_count err=%d.\n", error);
-		if (bad_formal_ino(ip, dent, entry, tmp_name, q, de, bh) == 1)
-			goto nuke_dentry;
-	}
+	if (error > 0 &&
+	    bad_formal_ino(ip, dent, entry, tmp_name, q, de, bh) == 1)
+		goto nuke_dentry;
+
 	(*count)++;
 	ds->entry_count++;
 	/* End of checks */
@@ -2203,11 +2088,8 @@ static int pass2_check_dir(struct gfs2_sbd *sdp, struct gfs2_inode *ip)
  */
 int pass2(struct gfs2_sbd *sdp)
 {
-	struct osi_node *tmp, *next = NULL;
-	struct gfs2_inode *ip;
-	struct dir_info *dt;
 	uint64_t dirblk;
-	int error;
+	int q;
 
 	/* Check all the system directory inodes. */
 	if (!sdp->gfs1 &&
@@ -2239,17 +2121,25 @@ int pass2(struct gfs2_sbd *sdp)
 		return FSCK_OK;
 	log_info( _("Checking directory inodes.\n"));
 	/* Grab each directory inode, and run checks on it */
-	for (tmp = osi_first(&dirtree); tmp; tmp = next) {
-		next = osi_next(tmp);
+	for (dirblk = 0; dirblk < last_fs_block; dirblk++) {
+		struct gfs2_inode *ip;
+		struct dir_info *dt;
+		int error;
 
-		dt = (struct dir_info *)tmp;
-		dirblk = dt->dinode.no_addr;
 		warm_fuzzy_stuff(dirblk);
 		if (skip_this_pass || fsck_abort) /* if asked to skip the rest */
 			return FSCK_OK;
 
 		/* Skip the system inodes - they're checked above */
 		if (is_system_dir(sdp, dirblk))
+			continue;
+
+		q = bitmap_type(sdp, dirblk);
+		if (q != GFS2_BLKST_DINODE)
+			continue;
+
+		dt = dirtree_find(dirblk);
+		if (dt == NULL)
 			continue;
 
 		/* If we created lost+found, its links should have been

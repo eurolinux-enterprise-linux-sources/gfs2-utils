@@ -1,0 +1,54 @@
+commit 1adddb1098c10766ae2587d393c1612e5670a52d
+Author: Bob Peterson <rpeterso@redhat.com>
+Date:   Thu Jun 23 08:16:25 2016 -0500
+
+    fsck.gfs2: link count checking wrong inode's formal inode number
+    
+    This patch fixes a bug whereby inodes that aren't in the dirtree or
+    the inodetree are checking the wrong formal inode number. Function
+    incr_link_count checks the wrong inode value, and thus reports an
+    error where there are none. Also, when the error is reported back,
+    it reports the wrong value, using a copy of the inum value. In this
+    case, it should look up the dentry's inode's formal inode number.
+    This should only hurt performance in error cases.
+    
+    Signed-off-by: Bob Peterson <rpeterso@redhat.com>
+    
+    This is a RHEL7 port of this upstream patch:
+    https://git.fedorahosted.org/cgit/gfs2-utils.git/commit/?id=ad19203f04caa3fb1c777250a21fe1a968999e8f
+    
+    rhbz#1350597
+
+diff --git a/gfs2/fsck/link.c b/gfs2/fsck/link.c
+index 0243d85..00636d7 100644
+--- a/gfs2/fsck/link.c
++++ b/gfs2/fsck/link.c
+@@ -112,7 +112,7 @@ int incr_link_count(struct gfs2_inum no, struct gfs2_inode *ip,
+ 
+ 	link_ip = fsck_load_inode(ip->i_sbd, no.no_addr);
+ 	/* Check formal ino against dinode before adding to inode tree. */
+-	if (no.no_formal_ino != ip->i_di.di_num.no_formal_ino) {
++	if (no.no_formal_ino != link_ip->i_di.di_num.no_formal_ino) {
+ 		fsck_inode_put(&link_ip);
+ 		return 1;
+ 	}
+diff --git a/gfs2/fsck/pass2.c b/gfs2/fsck/pass2.c
+index f808cea..8ac5547 100644
+--- a/gfs2/fsck/pass2.c
++++ b/gfs2/fsck/pass2.c
+@@ -195,8 +195,13 @@ static int bad_formal_ino(struct gfs2_inode *ip, struct gfs2_dirent *dent,
+ 		di = dirtree_find(entry.no_addr);
+ 		if (di)
+ 			inum = di->dinode;
+-		else if (link1_type(&clink1map, entry.no_addr) == 1)
+-			inum = entry;
++		else if (link1_type(&clink1map, entry.no_addr) == 1) {
++			struct gfs2_inode *dent_ip;
++
++			dent_ip = fsck_load_inode(ip->i_sbd, entry.no_addr);
++			inum = dent_ip->i_di.di_num;
++			fsck_inode_put(&dent_ip);
++		}
+ 	}
+ 	log_err( _("Directory entry '%s' pointing to block %llu (0x%llx) in "
+ 		   "directory %llu (0x%llx) has the wrong 'formal' inode "

@@ -3,10 +3,6 @@
 #include "libgfs2.h"
 #include "clusterautoconfig.h"
 
-#ifdef GFS2_HAS_UUID
-#include <uuid.h>
-#endif
-
 #define ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
 #define SYM(x) { x, #x },
 
@@ -154,9 +150,7 @@ F(sb_lockproto, .flags = LGFS2_MFF_STRING)
 F(sb_locktable, .flags = LGFS2_MFF_STRING)
 INR(__pad3, .points_to = (1 << LGFS2_MT_GFS2_DINODE))
 INR(__pad4, .points_to = (1 << LGFS2_MT_GFS2_DINODE))
-#ifdef GFS2_HAS_UUID
 F(sb_uuid, .flags = LGFS2_MFF_UUID)
-#endif
 };
 
 #undef STRUCT
@@ -884,14 +878,7 @@ int lgfs2_field_str(char *str, const size_t size, const char *blk, const struct 
 		return 1;
 
 	if (field->flags & LGFS2_MFF_UUID) {
-#ifdef GFS2_HAS_UUID
-		char readable_uuid[36+1];
-		uuid_t uuid;
-
-		memcpy(uuid, fieldp, sizeof(uuid_t));
-		uuid_unparse(uuid, readable_uuid);
-		snprintf(str, size, "%s", readable_uuid);
-#endif
+		snprintf(str, size, "%s", str_uuid((unsigned char *)fieldp));
 	} else if (field->flags & LGFS2_MFF_STRING) {
 		snprintf(str, size, "%s", fieldp);
 	} else {

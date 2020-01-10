@@ -164,8 +164,6 @@ static int find_shortest_rgdist(struct gfs2_sbd *sdp, uint64_t *dist_array,
 				/* That last one didn't pan out, so: */
 				dist_cnt[gsegment]--;
 				gsegment++;
-				if (gsegment >= MAX_RGSEGMENTS)
-					break;
 			}
 			if ((blk - block_last_rg) > (524288 * 2)) {
 				log_info(_("No rgrps were found within 4GB "
@@ -219,8 +217,6 @@ static int find_shortest_rgdist(struct gfs2_sbd *sdp, uint64_t *dist_array,
 			}
 		} else {
 			gsegment++;
-			if (gsegment >= MAX_RGSEGMENTS)
-				break;
 		}
 		block_last_rg = blk;
 		if (rgs_sampled < 6)
@@ -228,10 +224,11 @@ static int find_shortest_rgdist(struct gfs2_sbd *sdp, uint64_t *dist_array,
 		else
 			blk += shortest_dist_btwn_rgs - 1;
 	}
-	if (gsegment >= MAX_RGSEGMENTS) {
+	if (gsegment > MAX_RGSEGMENTS) {
 		log_err(_("Maximum number of rgrp grow segments reached.\n"));
-		log_err(_("This file system has more than %d resource "
-			  "group segments.\n"), MAX_RGSEGMENTS);
+		log_err(_("This file system cannot be repaired with fsck.\n"));
+		gsegment = 0;
+		goto out;
 	}
 	/* -------------------------------------------------------------- */
 	/* Sanity-check our first_rg_dist. If RG #2 got nuked, the        */
@@ -259,6 +256,7 @@ static int find_shortest_rgdist(struct gfs2_sbd *sdp, uint64_t *dist_array,
 			   (unsigned long long)*dist_array);
 	} /* if first RG distance is within tolerance */
 
+out:
 	gfs2_special_free(&false_rgrps);
 	return gsegment;
 }
@@ -1137,14 +1135,10 @@ int rg_repair(struct gfs2_sbd *sdp, int trust_lvl, int *rg_count, int *sane)
 			next = osi_next(n);
 		enext = osi_next(e);
 		expected = (struct rgrp_tree *)e;
-		actual = (struct rgrp_tree *)n;
 
-		/* If the next "actual" rgrp in memory is too far away,
-		   fill in a new one with the expected value. -or-
-		   If we ran out of actual rindex entries due to rindex
+		/* If we ran out of actual rindex entries due to rindex
 		   damage, fill in a new one with the expected values. */
-		if (!n || /* end of actual rindex */
-		    expected->ri.ri_addr < actual->ri.ri_addr) {
+		if (!n) { /* end of actual rindex */
 			log_err( _("Entry missing from rindex: 0x%llx\n"),
 				 (unsigned long long)expected->ri.ri_addr);
 			actual = rgrp_insert(&sdp->rgtree,
@@ -1154,9 +1148,8 @@ int rg_repair(struct gfs2_sbd *sdp, int trust_lvl, int *rg_count, int *sane)
 				break;
 			}
 			rindex_modified = 1;
-			next = n; /* Ensure that the old actual gets checked
-				     against a new expected, since we added */
 		} else {
+			actual = (struct rgrp_tree *)n;
 			ri_compare(rg, actual->ri, expected->ri, ri_addr,
 				   "llx", unsigned long long);
 			ri_compare(rg, actual->ri, expected->ri, ri_length,

@@ -11,8 +11,8 @@
 ###############################################################################
 
 Name: gfs2-utils
-Version: 3.1.10
-Release: 9%{?dist}
+Version: 3.1.9
+Release: 3%{?dist}
 License: GPLv2+ and LGPLv2+
 Group: System Environment/Kernel
 Summary: Utilities for managing the global file system (GFS2)
@@ -27,12 +27,11 @@ BuildRequires: gettext-devel
 BuildRequires: bison
 BuildRequires: flex
 BuildRequires: libblkid-devel
-BuildRequires: libuuid-devel
 BuildRequires: check-devel
-URL: https://pagure.io/gfs2-utils
+URL: https://fedorahosted.org/cluster/wiki/HomePage
 
 %if 0%{?rhel} > 0
-ExclusiveArch: x86_64 s390x ppc64le
+ExclusiveArch: x86_64 s390x
 %endif
 
 # The source for this package was pulled from the upstream git tree.
@@ -41,36 +40,20 @@ ExclusiveArch: x86_64 s390x ppc64le
 # cd gfs2-utils
 # ./make-tarball.sh
 #
-Source0: https://releases.pagure.org/gfs2-utils/gfs2-utils-%{version}.tar.gz
-Patch0: bz1326508-gfs2_5_Clarify_the_availability_of_the_loccookie_option.patch
-Patch1: bz1436772-gfs2_grow_Disable_rgrp_alignment_when_dev_topology_is_unsuitable.patch
-Patch2: bz1440269-1-mkfs_gfs2_Free_unnecessary_cached_pages_disable_readahead.patch
-Patch3: bz1440269-2-mkfs_gfs2_Fix_resource_group_alignment_issue.patch
-Patch4: bz1440269-3-libgfs2_Issue_one_write_per_rgrp_when_creating_them.patch
-Patch5: bz1482542-gfs2_edit_savemeta_Fix_up_saving_of_dinodes_symlinks.patch
-Patch6: bz1507091-fsck_gfs2_Make_p_n_and_y_conflicting_options.patch
-Patch7: bz1518938-gfs2_edit_Print_offsets_of_indirect_pointers.patch
-Patch8: bz1498068-mkfs_gfs2_Scale_down_journal_size_for_smaller_devices.patch
-Patch9: bz1544944-glocktop_Remove_a_non_existent_flag_from_the_usage_string.patch
-Patch10: bz1616389-1-fsck_gfs2_Don_t_check_fs_formats_we_don_t_recognise.patch
-Patch11: bz1616389-2-libgfs2_Fix_pointer_cast_byte_order_issue.patch
+Source0: https://fedorahosted.org/released/gfs2-utils/gfs2-utils-%{version}.tar.gz
+Patch0: bz1348703-fsck_gfs2_undo_functions_can_stop_too_early_on_duplicates.patch
+Patch1: bz1350597-fsck_gfs2_link_count_checking_wrong_inode_s_formal_inode_number.patch
+Patch2: bz1350600-fsck_gfs2_check_formal_inode_number_when_links_go_from_1_to_2.patch
+Patch3: bz1326508-gfs2_5_Clarify_the_availability_of_the_loccookie_option.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 %prep
 %setup -q -n gfs2-utils-%{version}
-%patch0 -p1 -b .bz1326508-gfs2_5_Clarify_the_availability_of_the_loccookie_option
-%patch1 -p1 -b .bz1436772-gfs2_grow_Disable_rgrp_alignment_when_dev_topology_is_unsuitable
-%patch2 -p1 -b .bz1440269-1-mkfs_gfs2_Free_unnecessary_cached_pages_disable_readahead
-%patch3 -p1 -b .bz1440269-2-mkfs_gfs2_Fix_resource_group_alignment_issue
-%patch4 -p1 -b .bz1440269-3-libgfs2_Issue_one_write_per_rgrp_when_creating_them
-%patch5 -p1 -b .bz1482542-gfs2_edit_savemeta_Fix_up_saving_of_dinodes_symlinks
-%patch6 -p1 -b .bz1507091-fsck_gfs2_Make_p_n_and_y_conflicting_options
-%patch7 -p1 -b .bz1518938-gfs2_edit_Print_offsets_of_indirect_pointers
-%patch8 -p1 -b .bz1498068-mkfs_gfs2_Scale_down_journal_size_for_smaller_devices
-%patch9 -p1 -b .bz1544944-glocktop_Remove_a_non_existent_flag_from_the_usage_string
-%patch10 -p1 -b .bz1616389-1-fsck_gfs2_Don_t_check_fs_formats_we_don_t_recognise
-%patch11 -p1 -b .bz1616389-2-libgfs2_Fix_pointer_cast_byte_order_issue
+%patch0 -p1 -b .bz1348703-fsck_gfs2_undo_functions_can_stop_too_early_on_duplicates
+%patch1 -p1 -b .bz1350597-fsck_gfs2_link_count_checking_wrong_inode_s_formal_inode_number
+%patch2 -p1 -b .bz1350600-fsck_gfs2_check_formal_inode_number_when_links_go_from_1_to_2
+%patch3 -p1 -b .bz1326508-gfs2_5_Clarify_the_availability_of_the_loccookie_option
 
 %build
 ./autogen.sh
@@ -116,56 +99,6 @@ file systems.
 %{_prefix}/lib/udev/rules.d/82-gfs2-withdraw.rules
 
 %changelog
-* Thu Sep 06 2018 Andrew Price <anprice@redhat.com> - 3.1.10-9
-- fsck.gfs2: Don't check fs formats we don't recognise
-- libgfs2: Fix pointer cast byte order issue
-  Resolves: rhbz#1616389
-
-* Fri Jun 22 2018 Andrew Price <anprice@redhat.com> - 3.1.10-8
-- glocktop: Remove a non-existent flag from the usage string
-  Resolves: rhbz#1544944
-
-* Sun Apr 15 2018 Andrew Price <anprice@redhat.com> - 3.1.10-7
-- mkfs.gfs2: Scale down journal size for smaller devices
-  Resolves: rhbz#1498068
-
-* Tue Dec 05 2017 Andrew Price <anprice@redhat.com> - 3.1.10-6
-- gfs2_edit: Print offsets of indirect pointers
-  Resolves: rhbz#1518938
-
-* Thu Nov 02 2017 Andrew Price <anprice@redhat.com> - 3.1.10-5
-- Update URL in spec file
-  Resolves: rhbz#1501738
-- fsck.gfs2: Make -p, -n and -y conflicting options
-  Resolves: rhbz#1507091
-
-* Fri Aug 18 2017 Andrew Price <anprice@redhat.com> - 3.1.10-4
-- gfs2_edit savemeta: Fix up saving of dinodes/symlinks
-  Resolves: rhbz#1482542
-
-* Tue Apr 18 2017 Andrew Price <anprice@redhat.com> - 3.1.10-3
-- libgfs2: Issue one write per rgrp when creating them
-- mkfs.gfs2: Fix resource group alignment issue
-- mkfs.gfs2: Free unnecessary cached pages, disable readahead
-  Resolves: rhbz#1440269
-
-* Tue Mar 28 2017 Andrew Price <anprice@redhat.com> - 3.1.10-2
-- gfs2_grow: Disable rgrp alignment when dev topology is unsuitable
-  Resolves: rhbz#1436772
-
-* Tue Mar 28 2017 Andrew Price <anprice@redhat.com> - 3.1.10-1
-- Rebase to new upstream version 3.1.10
-  Resolves: rhbz#1348601
-  Resolves: rhbz#1356685
-  Resolves: rhbz#1382087
-  Resolves: rhbz#1405163
-  Resolves: rhbz#1430399
-- Make dependency on libuuid explicit
-
-* Wed Mar 15 2017 Andrew Price <anprice@redhat.com> - 3.1.9-4
-- Enable ppc64le builds
-  Resolves: rhbz#1426651
-
 * Wed Jul 20 2016 Andrew Price <anprice@redhat.com> - 3.1.9-3
 - gfs2(5): Clarify the availability of the loccookie option
   Resolves: rhbz#1326508

@@ -1,0 +1,41 @@
+
+To build this source tree, you will need:
+
+ - automake
+ - GNU make
+ - GCC tool chain
+
+Plus the following libraries:
+
+    ncurses (for gfs2_edit)
+    gettext
+    bison
+    flex
+    zlib
+    libblkid
+    check (optional, enables the test suite)
+
+To build gfs2-utils, run the following commands:
+
+    ./autogen.sh
+    ./configure
+    make
+
+To run the test suite:
+
+    make check
+
+To install gfs2-utils, run:
+
+    make install
+
+The following scripts (located in gfs2/scripts) are used to complete
+the userland portion of the gfs2 withdraw feature using uevents. They
+will be installed by 'make install' to these directories by default:
+
+	82-gfs2-withdraw.rules in /usr/lib/udev/rules.d/
+	gfs2_withdraw_helper   in /usr/sbin/
+
+See also doc/README.contributing for details on submitting patches and
+doc/README.tests for more details regarding the test suite.
+
